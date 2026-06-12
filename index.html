@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Phase 10 Ledger</title>
+<style>
+    body { 
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        background-color: #F2F2F7; 
+        padding: 20px; 
+        padding-top: 40px;
+        color: #1C1C1E;
+        -webkit-font-smoothing: antialiased;
+    }
+    .card { 
+        background: #FFFFFF; 
+        border-radius: 14px; 
+        padding: 20px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+        margin-bottom: 20px; 
+    }
+    h2 { margin-top: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    h3 { margin: 5px 0 15px 0; color: #8E8E93; font-size: 14px; font-weight: 600; text-transform: uppercase; }
+    input[type="text"] { 
+        width: 100%; padding: 14px; border: 1px solid #C7C7CC; border-radius: 10px; font-size: 16px; box-sizing: border-box; 
+    }
+    input[type="number"] { 
+        width: 70px; padding: 10px; border: 1px solid #C7C7CC; border-radius: 8px; font-size: 16px; text-align: center; box-sizing: border-box; 
+    }
+    button { 
+        background: #007AFF; color: #FFFFFF; border: none; padding: 16px; border-radius: 10px; font-size: 16px; font-weight: 600; width: 100%; margin-top: 10px; cursor: pointer; 
+    }
+    button:active { background: #0056B3; }
+    .row { 
+        display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid #E5E5EA; 
+    }
+    .player-info { flex-grow: 1; }
+    .player-name { font-weight: 600; font-size: 17px; }
+    .phase-badge { background: #E5E5EA; color: #1C1C1E; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-left: 5px; }
+    .controls { display: flex; align-items: center; gap: 15px; }
+    .toggle-label { font-size: 12px; color: #8E8E93; text-align: center; font-weight: 600; }
+    .switch { position: relative; display: inline-block; width: 46px; height: 28px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #E5E5EA; border-radius: 28px; transition: .2s; }
+    .slider:before { position: absolute; content: ""; height: 24px; width: 24px; left: 2px; bottom: 2px; background-color: white; border-radius: 50%; transition: .2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    input:checked + .slider { background-color: #34C759; }
+    input:checked + .slider:before { transform: translateX(18px); }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #FFFFFF; }
+    th, td { border: 1px solid #D1D1D6; padding: 12px 8px; text-align: center; font-size: 14px; }
+    th { background: #F2F2F7; font-weight: 600; }
+    .winner { color: #34C759; font-weight: 700; }
+    .phase-text { font-size: 12px; color: #8E8E93; display: block; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div id="setupView" class="card">
+    <h2>Phase 10 Setup</h2>
+    <input type="text" id="pName" placeholder="Player Name..." onkeydown="if(event.key==='Enter')addPlayer()">
+    <button onclick="addPlayer()">Add Player</button>
+    <div id="pList" style="margin: 20px 0; font-size: 17px; line-height: 2.2;"></div>
+    <button onclick="startGame()" id="startBtn" style="background:#34C759; display:none;">Start Game</button>
+</div>
+
+<div id="gameView" style="display:none;">
+    <div class="card">
+        <h2>Enter Round Results</h2>
+        <h3>Current Phase Targets Reference</h3>
+        <div id="phaseReference" style="font-size: 13px; color: #48484A; background: #F2F2F7; padding: 12px; border-radius: 8px; margin-bottom: 20px; line-height: 1.4;">
+            </div>
+        <div id="entryRows"></div>
+        <button onclick="submitRound()" style="background:#34C759; margin-top: 15px;">Submit Round Results</button>
+    </div>
+</div>
+
+<div id="resultsView" style="display:none;">
+    <div class="card">
+        <h2>Final Standings</h2>
+        <div style="overflow-x:auto;"><table id="ledgerTable"></table></div>
+        <button onclick="resetGame()" style="background:#8E8E93; margin-top:25px;">New Game</button>
+    </div>
+</div>
+
+<script>
+    var players = [];
+    var roundNumber = 1;
+    
+    // The 10 Official Phases Definitions
+    var phaseDefinitions = [
+        "Phase 1: 2 sets of 3",
+        "Phase 2: 1 set of 3 + 1 run of 4",
+        "Phase 3: 1 set of 4 + 1 run of 4",
+        "Phase 4: 1 run of 7",
+        "Phase 5: 1 run of 8",
+        "Phase 6: 1 run of 9",
+        "Phase 7: 2 sets of 4",
+        "Phase 8: 7 cards of 1 color",
+        "Phase 9: 1 set of 5 + 1 set of 2",
+        "Phase 10: 1 set of 5 + 1 set of 3"
+    ];
+
+    function addPlayer() {
+        var input = document.getElementById('pName');
+        var name = input.value.trim();
+        if(name !== "") {
+            // Track name, total points, current phase index (0-9), and whether game is complete
+            players.push({ name: name, totalPoints: 0, currentPhaseIdx: 0, completedGame: false });
+            input.value = "";
+            renderSetupList();
+        }
+    }
+
+    function renderSetupList() {
+        var html = "";
+        for(var i=0; i<players.length; i++) {
+            html += "<div style='border-bottom: 1px solid #E5E5EA; padding: 6px 0;'>👤 " + players[i].name + "</div>";
+        }
+        document.getElementById('pList').innerHTML = html;
+        if(players.length >= 2) {
+            document.getElementById('startBtn').style.display = "block";
+        }
+    }
+
+    function startGame() {
+        document.getElementById('setupView').style.display = "none";
+        document.getElementById('gameView').style.display = "block";
+        buildRoundInterface();
+    }
+
+    function buildRoundInterface() {
+        // Build dynamic reference guide showing what phase each person is currently chasing
+        var refHtml = "<b>Current Objectives:</b><br>";
+        for(var i=0; i<players.length; i++) {
+            refHtml += "• <b>" + players[i].name + "</b>: " + phaseDefinitions[players[i].currentPhaseIdx] + "<br>";
+        }
+        document.getElementById('phaseReference').innerHTML = refHtml;
+
+        var html = "";
+        for(var i=0; i<players.length; i++) {
+            var p = players[i];
+            html += "<div class='row'>" +
+                        "<div class='player-info'>" +
+                            "<span class='player-name'>" + p.name + "</span>" +
+                            "<span class='phase-badge'>Phase " + (p.currentPhaseIdx + 1) + "</span>" +
+                            "<span class='phase-text'>Score: " + p.totalPoints + "</span>" +
+                        "</div>" +
+                        "<div class='controls'>" +
+                            "<div>" +
+                                "<div class='toggle-label'>Made Phase?</div>" +
+                                "<label class='switch'>" +
+                                    "<input type='checkbox' id='phaseCheck-" + i + "'>" +
+                                    "<span class='slider'></span>" +
+                                    "</label>" +
+                            "</div>" +
+                            "<div>" +
+                                "<div class='toggle-label'>Add Points</div>" +
+                                "<input type='number' id='pointsInput-" + i + "' placeholder='0' pattern='[0-9]*' inputmode='numeric'>" +
+                            "</div>" +
+                        "</div>" +
+                    "</div>";
+        }
+        document.getElementById('entryRows').innerHTML = html;
+        window.scrollTo(0,0);
+    }
+
+    function submitRound() {
+        var gameOverTriggered = false;
+
+        // Step 1: Process inputs
+        for(var i=0; i<players.length; i++) {
+            var madePhase = document.getElementById('phaseCheck-' + i).checked;
+            var pointsAdded = parseInt(document.getElementById('pointsInput-' + i).value) || 0;
+
+            players[i].totalPoints += pointsAdded;
+
+            if(madePhase) {
+                if(players[i].currentPhaseIdx < 9) {
+                    players[i].currentPhaseIdx++;
+                } else {
+                    // Player successfully cleared Phase 10 (index 9)
+                    players[i].completedGame = true;
+                    gameOverTriggered = true;
+                }
+            }
+        }
+
+        // Step 2: Determine if we move to next round or end game
+        if(gameOverTriggered) {
+            displayFinalLedger();
+        } else {
+            roundNumber++;
+            buildRoundInterface();
+        }
+    }
+
+    function displayFinalLedger() {
+        document.getElementById('gameView').style.display = "none";
+        document.getElementById('resultsView').style.display = "block";
+        
+        // Sort Rules: Higher cleared phase index wins. Tiebreaker: Lowest total points wins.
+        players.sort(function(a, b) {
+            if(a.currentPhaseIdx !== b.currentPhaseIdx) {
+                return b.currentPhaseIdx - a.currentPhaseIdx; // Higher phase first
+            }
+            return a.totalPoints - b.totalPoints; // Lower points first
+        });
+
+        var table = document.getElementById('ledgerTable');
+        var html = "<tr><th>Rank</th><th>Player</th><th>Highest Phase Cleared</th><th>Final Score</th></tr>";
+        
+        for(var i=0; i<players.length; i++) {
+            var p = players[i];
+            var rank = i + 1;
+            var isWinner = (rank === 1);
+            var displayPhase = p.completedGame ? "COMPLETED ALL 10" : "Cleared Phase " + p.currentPhaseIdx;
+            
+            html += "<tr" + (isWinner ? " style='background:#E5E5EA;'" : "") + ">" +
+                        "<td>" + rank + "</td>" +
+                        "<td class='" + (isWinner ? "winner" : "") + "'>" + p.name + (isWinner ? " 🏆" : "") + "</td>" +
+                        "<td>" + displayPhase + "</td>" +
+                        "<td>" + p.totalPoints + "</td>" +
+                    "</tr>";
+        }
+        
+        table.innerHTML = html;
+        window.scrollTo(0,0);
+    }
+
+    function resetGame() {
+        players = [];
+        roundNumber = 1;
+        document.getElementById('pList').innerHTML = "";
+        document.getElementById('startBtn').style.display = "none";
+        document.getElementById('resultsView').style.display = "none";
+        document.getElementById('setupView').style.display = "block";
+        window.scrollTo(0,0);
+    }
+</script>
+</body>
+</html>
